@@ -4,6 +4,7 @@ from collections import defaultdict
 from util.preprocess import calc_spectrograms
 from util.g2p import grapheme_to_phoneme, convert_to_indices
 from sklearn.model_selection import train_test_split
+import tensorflow as tf
 import librosa
 
 class TTSData:
@@ -70,17 +71,19 @@ class KSSDataset:
         else:
             return test_seeds
 
-class TTSDataLoader:
+class TTSDataLoader(tf.keras.utils.Sequence):
     def __init__(self, dataset, batch_size=64):
         self.dataset = dataset
         self.batch_size = batch_size
 
-    def __iter__(self):
+    def __getitem__(self, index):
+        l = index * self.batch_size
+        r = (index + 1) * self.batch_size
+        return self.__postprocess(self.dataset[l:r])
+
+    def __len__(self):
         n = len(self.dataset)
-        for index in range(0, n, self.batch_size):
-            yield self.__postprocess(
-                self.dataset[index:index + self.batch_size]
-            )
+        return 1 + (n - 1) // self.batch_size
 
     def __postprocess(self, batch):
         max_n = np.max([data.char_sequence.shape[0] for data in batch])
@@ -98,7 +101,7 @@ class TTSDataLoader:
         ])
         mel_left = padded_melspectrograms[:,:max_t,:]
         mel_right = padded_melspectrograms[:,1:,:]
-        return (mel_left, padded_sentences), mel_right
+        return [mel_left, padded_sentences], mel_right
 
 
 
