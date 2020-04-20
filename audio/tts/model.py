@@ -19,9 +19,9 @@ class AudioEncoder:
     def __init__(self):
         d = D['latent']
         self.layers = [
-            Conv1D(d, 1, dilation_rate=1, activation='relu'),
-            Conv1D(d, 1, dilation_rate=1, activation='relu'),
-            Conv1D(d, 1, dilation_rate=1),
+            Conv1D(d, 1, dilation_rate=1, activation='relu', padding="causal"),
+            Conv1D(d, 1, dilation_rate=1, activation='relu', padding="causal"),
+            Conv1D(d, 1, dilation_rate=1, padding="causal"),
 
             HighwayConv1D(3, 1),
             HighwayConv1D(3, 3),
@@ -53,19 +53,19 @@ class TextEncoder:
             Conv1D(2 * d, 1, dilation_rate=1, activation='relu'),
             Conv1D(2 * d, 1, dilation_rate=1),
 
-            HighwayConv1D(3, 1),
-            HighwayConv1D(3, 3),
-            HighwayConv1D(3, 9),
-            HighwayConv1D(3, 27),
-            HighwayConv1D(3, 1),
-            HighwayConv1D(3, 3),
-            HighwayConv1D(3, 9),
-            HighwayConv1D(3, 27),
-            HighwayConv1D(3, 1),
-            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 1, padding='same'),
+            HighwayConv1D(3, 3, padding='same'),
+            HighwayConv1D(3, 9, padding='same'),
+            HighwayConv1D(3, 27, padding='same'),
+            HighwayConv1D(3, 1, padding='same'),
+            HighwayConv1D(3, 3, padding='same'),
+            HighwayConv1D(3, 9, padding='same'),
+            HighwayConv1D(3, 27, padding='same'),
+            HighwayConv1D(3, 1, padding='same'),
+            HighwayConv1D(3, 1, padding='same'),
 
-            HighwayConv1D(1, 1),
-            HighwayConv1D(1, 1),
+            HighwayConv1D(1, 1, padding='same'),
+            HighwayConv1D(1, 1, padding='same'),
         ]
         self.model = self.__build()
 
@@ -81,31 +81,33 @@ class TextEncoder:
 
 def mix_input(text_encoded_att, text_encoded_chr, audio_encoded):
     attention = tf.matmul(text_encoded_att, audio_encoded, transpose_b=True)
-    attention = K.softmax(attention / D['latent'] ** 0.5)
+    attention = K.softmax(attention / D['latent'] ** 0.5, axis=1)
     mixed_input = tf.matmul(attention, text_encoded_chr, transpose_a=True)
     input_to_decoder = K.concatenate([mixed_input, audio_encoded])
+    # input_to_decoder = mixed_input
     return input_to_decoder, attention
 
 class AudioDecoder:
     def __init__(self):
         d = D['latent']
         self.layers = [
-            Conv1D(d, 1, dilation_rate=1),
+            Conv1D(d, 1, dilation_rate=1, padding="causal"),
             HighwayConv1D(3, 1),
             HighwayConv1D(3, 3),
             HighwayConv1D(3, 9),
             HighwayConv1D(3, 27),
             HighwayConv1D(3, 1),
             HighwayConv1D(3, 1),
-            Conv1D(d, 1, dilation_rate=1, activation='relu'),
-            Conv1D(d, 1, dilation_rate=1, activation='relu'),
-            Conv1D(d, 1, dilation_rate=1, activation='relu'),
-            Conv1D(D['F'], 1, dilation_rate=1, activation='sigmoid'),
+            Conv1D(d, 1, dilation_rate=1, activation='relu', padding="causal"),
+            Conv1D(d, 1, dilation_rate=1, activation='relu', padding="causal"),
+            Conv1D(d, 1, dilation_rate=1, activation='relu', padding="causal"),
+            Conv1D(D['F'], 1, dilation_rate=1, activation='sigmoid', padding="causal"),
         ]
         self.model = self.__build()
     
     def __build(self):
         inputs = Input(shape=(None, 2 * D['latent']))
+        # inputs = Input(shape=(None, D['latent']))
         x = inputs
         for layer in self.layers:
             x = layer(x)
@@ -138,10 +140,10 @@ class TTSModel:
         model.add_loss(attention_loss)
 
         bce_loss_fn = tf.keras.losses.BinaryCrossentropy()
-        mse_loss_fn = tf.keras.losses.MeanSquaredError()
+        l1_loss_fn = tf.keras.losses.MeanAbsoluteError()
 
         def loss(y_pred, y_true):
-            return mse_loss_fn(y_pred, y_true) ** 0.5 + bce_loss_fn(y_pred, y_true)
+            return l1_loss_fn(y_pred, y_true) + bce_loss_fn(y_pred, y_true)
 
         optimizer = Adam(learning_rate=2e-4, beta_1=0.5, beta_2=0.9, epsilon=1e-6)
 
