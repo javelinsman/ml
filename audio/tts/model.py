@@ -7,8 +7,8 @@ from util.g2p import phoneme_types
 from util.layers import HighwayConv1D
 
 D = {
-    'latent': 128,
-    'F': 128,
+    'latent': 256,
+    'F': 80,
     'embedding': 128
 }
 
