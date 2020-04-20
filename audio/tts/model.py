@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Conv1D, Embedding, Input
+from tensorflow.keras.optimizers import Adam
 import tensorflow.keras.backend as K
 
 from util.g2p import phoneme_types
@@ -9,6 +10,8 @@ from util.layers import HighwayConv1D
 D = {
     'latent': 256,
     'F': 80,
+    'F_': 513,
+    'c': 512,
     'embedding': 128
 }
 
@@ -77,9 +80,9 @@ class TextEncoder:
 
 
 def mix_input(text_encoded_att, text_encoded_chr, audio_encoded):
-    attention = K.batch_dot(text_encoded_att, K.permute_dimensions(audio_encoded, (0, 2, 1)))
+    attention = tf.matmul(text_encoded_att, audio_encoded, transpose_b=True)
     attention = K.softmax(attention / D['latent'] ** 0.5)
-    mixed_input = K.batch_dot(K.permute_dimensions(attention, (0, 2, 1)), text_encoded_chr)
+    mixed_input = tf.matmul(attention, text_encoded_chr, transpose_a=True)
     input_to_decoder = K.concatenate([mixed_input, audio_encoded])
     return input_to_decoder, attention
 
@@ -140,6 +143,39 @@ class TTSModel:
         def loss(y_pred, y_true):
             return mse_loss_fn(y_pred, y_true) ** 0.5 + bce_loss_fn(y_pred, y_true)
 
-        model.compile(loss=loss, optimizer='adam')
+        optimizer = Adam(learning_rate=2e-4, beta_1=0.5, beta_2=0.9, epsilon=1e-6)
+
+        model.compile(loss=loss, optimizer=optimizer)
 
         return model
+
+class SSRN:
+    # ignored deconv as I didn't reduced temporal dimension
+    def __init__(self):
+        self.layers = [
+            Conv1D(D['c'], 1, dilation_rate=1),
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            # TODO deconv 2*1
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            # TODO deconv 2*1
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            Conv1D(2 * D['c'], 1, dilation_rate=1),
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 1),
+            Conv1D(D['F_'], 1, dilation_rate=1),
+            Conv1D(D['F_'], 1, dilation_rate=1, activation='relu'),
+            Conv1D(D['F_'], 1, dilation_rate=1, activation='relu'),
+            Conv1D(D['F_'], 1, dilation_rate=1, activation='sigmoid'),
+        ]
+        self.model = self.__build()
+    
+    def __build(self):
+        inputs = Input(shape=(None, D['F']))
+        x = inputs
+        for layer in self.layers:
+            x = layer(x)
+        return Model(inputs, x)
+
