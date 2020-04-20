@@ -13,6 +13,7 @@ class TTSData:
         self.path_to_wav = path_to_wav
         self.sentence = sentence
         self._char_sequence = None
+        self._char_sequence_len = None
         self._melspectrogram = None
 
     def __repr__(self):
@@ -36,6 +37,12 @@ class TTSData:
             self._char_sequence = \
                 convert_to_indices(grapheme_to_phoneme(self.sentence))
         return self._char_sequence
+
+    @property
+    def char_sequence_len(self):
+        if self._char_sequence_len is None:
+            self._char_sequence_len = len(self.char_sequence)
+        return self._char_sequence_len
         
 class KSSDataset:
     def __init__(self, train=True, section=2):
@@ -43,7 +50,7 @@ class KSSDataset:
         self.train = train
         self.seeds = self.__make_seeds()
         self.data = [TTSData(*seed) for seed in self.seeds]
-        self.data.sort(key=lambda data: len(data.char_sequence))
+        self.data.sort(key=lambda data: data.char_sequence_len)
 
     def __len__(self):
         return len(self.data)
@@ -58,7 +65,7 @@ class KSSDataset:
         with open(transcript_path, encoding='utf-8') as f:
             for line in f:
                 args = line.split('|')
-                if not args[0].startswith(f'{self.section}/'):
+                if self.section != 'all' and not args[0].startswith(f'{self.section}/'):
                     continue
                 seeds.append((
                     os.path.join(base_path, 'kss', args[0]),
