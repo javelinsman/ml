@@ -4,40 +4,75 @@ from tensorflow.keras.layers import Conv1D, Embedding, Input
 import tensorflow.keras.backend as K
 
 from util.g2p import phoneme_types
+from util.layers import HighwayConv1D
 
 D = {
-    'latent': 77,
+    'latent': 128,
     'F': 128,
-    'embedding': 64
+    'embedding': 128
 }
-
 
 class AudioEncoder:
     def __init__(self):
-        self.conv1 = Conv1D(D['latent'], 1, activation='relu')
-        self.conv2 = Conv1D(D['latent'], 1)
+        d = D['latent']
+        self.layers = [
+            Conv1D(d, 1, dilation_rate=1, activation='relu'),
+            Conv1D(d, 1, dilation_rate=1, activation='relu'),
+            Conv1D(d, 1, dilation_rate=1),
+
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            HighwayConv1D(3, 9),
+            HighwayConv1D(3, 27),
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            HighwayConv1D(3, 9),
+            HighwayConv1D(3, 27),
+            HighwayConv1D(3, 3),
+            HighwayConv1D(3, 3),
+        ]
         self.model = self.__build()
 
     def __build(self):
         inputs = Input(shape=(None, D['F']))
-        x = self.conv1(inputs)
-        x = self.conv2(x)
+        x = inputs
+        for layer in self.layers:
+            x = layer(x)
         return Model(inputs, x)
 
 class TextEncoder:
     def __init__(self):
-        self.embedding = Embedding(len(phoneme_types), D['embedding'])
-        self.conv1 = Conv1D(D['latent'], 1, activation='relu')
-        self.conv_att = Conv1D(D['latent'], 1)
-        self.conv_chr = Conv1D(D['latent'], 1)
+        e = D['embedding']
+        d = D['latent']
+
+        self.layers = [
+            Embedding(len(phoneme_types), e),
+            Conv1D(2 * d, 1, dilation_rate=1, activation='relu'),
+            Conv1D(2 * d, 1, dilation_rate=1),
+
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            HighwayConv1D(3, 9),
+            HighwayConv1D(3, 27),
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            HighwayConv1D(3, 9),
+            HighwayConv1D(3, 27),
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 1),
+
+            HighwayConv1D(1, 1),
+            HighwayConv1D(1, 1),
+        ]
         self.model = self.__build()
 
     def __build(self):
         inputs = Input(shape=(None,))
-        embedded = self.embedding(inputs)
-        x = self.conv1(embedded)
-        encoded_att = self.conv_att(x)
-        encoded_chr = self.conv_chr(x)
+        x = inputs
+        for layer in self.layers:
+            x = layer(x)
+        encoded_att = x[:,:,:D['latent']]
+        encoded_chr = x[:,:,D['latent']:]
         return Model(inputs, [encoded_att, encoded_chr])
 
 
@@ -50,14 +85,27 @@ def mix_input(text_encoded_att, text_encoded_chr, audio_encoded):
 
 class AudioDecoder:
     def __init__(self):
-        self.conv1 = Conv1D(D['F'], 1, activation='relu')
-        self.conv2 = Conv1D(D['F'], 1)
+        d = D['latent']
+        self.layers = [
+            Conv1D(d, 1, dilation_rate=1),
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 3),
+            HighwayConv1D(3, 9),
+            HighwayConv1D(3, 27),
+            HighwayConv1D(3, 1),
+            HighwayConv1D(3, 1),
+            Conv1D(d, 1, dilation_rate=1, activation='relu'),
+            Conv1D(d, 1, dilation_rate=1, activation='relu'),
+            Conv1D(d, 1, dilation_rate=1, activation='relu'),
+            Conv1D(D['F'], 1, dilation_rate=1, activation='sigmoid'),
+        ]
         self.model = self.__build()
     
     def __build(self):
         inputs = Input(shape=(None, 2 * D['latent']))
-        x = self.conv1(inputs)
-        x = self.conv2(x)
+        x = inputs
+        for layer in self.layers:
+            x = layer(x)
         return Model(inputs, x)
 
 class TTSModel:
@@ -84,7 +132,7 @@ class TTSModel:
         ns = K.reshape(tf.repeat(tf.range(N), T), (N, T))
         attention_guide = tf.cast(1 - tf.exp(-(ns / N - ts / T) ** 2 / (2 * 0.2 ** 2)), float)
         attention_loss = K.mean(tf.math.multiply(attention, attention_guide))
-        # model.add_loss(attention_loss)
+        model.add_loss(attention_loss)
 
         bce_loss_fn = tf.keras.losses.BinaryCrossentropy()
         mse_loss_fn = tf.keras.losses.MeanSquaredError()
