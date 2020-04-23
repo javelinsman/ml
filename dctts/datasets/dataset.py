@@ -4,8 +4,8 @@ from collections import defaultdict
 from util.preprocess import calc_spectrograms
 from util.g2p import grapheme_to_phoneme, convert_to_indices
 from sklearn.model_selection import train_test_split
-import tensorflow as tf
 import librosa
+import torch
 
 class TTSData:
     __cache = defaultdict(dict)
@@ -78,7 +78,7 @@ class KSSDataset:
         else:
             return test_seeds
 
-class TTSDataLoader(tf.keras.utils.Sequence):
+class TTSDataLoader:
     def __init__(self, dataset, batch_size=64):
         self.dataset = dataset
         self.batch_size = batch_size
@@ -91,6 +91,10 @@ class TTSDataLoader(tf.keras.utils.Sequence):
     def __len__(self):
         n = len(self.dataset)
         return 1 + (n - 1) // self.batch_size
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
     def __postprocess(self, batch):
         max_n = np.max([data.char_sequence.shape[0] for data in batch])
@@ -108,7 +112,7 @@ class TTSDataLoader(tf.keras.utils.Sequence):
         ])
         mel_left = padded_melspectrograms[:,:max_t,:]
         mel_right = padded_melspectrograms[:,1:,:]
-        return [mel_left, padded_sentences], mel_right
+        return [torch.tensor(mel_left), torch.tensor(padded_sentences)], torch.tensor(mel_right)
 
 
 
