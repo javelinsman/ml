@@ -13,6 +13,7 @@ class TTSData:
     def __init__(self, path_to_wav, sentence):
         self.path_to_wav = path_to_wav
         self.sentence = sentence
+        self._melspectrogram = None
         self._char_sequence = None
         self._char_sequence_len = None
         self._melspectrogram = None
@@ -26,20 +27,21 @@ class TTSData:
 
     @property
     def melspectrogram(self):
-        # returns transformed melspectrogram for convenience
-        cache_path = pathlib.Path(os.path.join(
-            os.path.dirname(__file__), 'data/cache/',
-            self.path_to_wav.replace('/', '-').replace('.', '')
-        ))
-        if cache_path.exists():
-            with open(cache_path) as f:
-                return np.array(json.loads(f.read()), dtype=np.float32)
-        else:
-            mel = self.calc_melspectrogram()
-            cache_path.parent.mkdir(exist_ok=True, parents=True)
-            with open(cache_path, 'w') as f:
-                f.write(json.dumps(mel.tolist()))
-            return mel
+        if self._melspectrogram is None:
+            cache_path = pathlib.Path(os.path.join(
+                os.path.dirname(__file__), 'data/cache/',
+                self.path_to_wav.replace('/', '-').replace('.', '')
+            ))
+            if cache_path.exists():
+                with open(cache_path) as f:
+                    mel = np.array(json.loads(f.read()), dtype=np.float32)
+            else:
+                mel = self.calc_melspectrogram()
+                cache_path.parent.mkdir(exist_ok=True, parents=True)
+                with open(cache_path, 'w') as f:
+                    f.write(json.dumps(mel.tolist()))
+            self._melspectrogram = mel
+        return self._melspectrogram
 
     @property
     def char_sequence(self):

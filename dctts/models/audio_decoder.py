@@ -24,6 +24,6 @@ class AudioDecoder(nn.Module):
         ])
         
     def forward(self, x):
-        for layer in [self.layers[0], self.layers[-2], self.layers[-1]]:
+        for layer in self.layers:
             x = layer(x)
         return x

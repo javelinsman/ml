@@ -9,6 +9,7 @@ from .config import DIMENSIONS as D
 from .audio_decoder import AudioDecoder
 from .text_encoder import TextEncoder
 from .audio_encoder import AudioEncoder
+from .attention import mix_input
 
 class TTSModel(pl.LightningModule):
     def __init__(self):
@@ -16,29 +17,46 @@ class TTSModel(pl.LightningModule):
         self.audio_encoder = AudioEncoder()
         self.text_encoder = TextEncoder()
         self.audio_decoder = AudioDecoder()
+
+    def summary(self, mode):
+        pass
+    
+    def prepare_data(self):
+        self.train_set = KSSDataset(train=True)
+        self.val_set = KSSDataset(train=False)
+
+    def train_dataloader(self):
+        return TTSDataLoader(self.train_set, batch_size=32)
+
+    def val_dataloader(self):
+        return TTSDataLoader(self.val_set, batch_size=32)
         
-    def mix_input(self, text_encoded_att, text_encoded_chr, audio_encoded):
-        attention = torch.matmul(text_encoded_att.permute(0, 2, 1), audio_encoded)
-        attention = torch.softmax(attention / D['latent'] ** 0.5, axis=1)
-        mixed_input = torch.matmul(text_encoded_chr, attention)
-#         input_to_decoder = torch.cat([mixed_input, audio_encoded], axis=1)
-        input_to_decoder = mixed_input
-        return input_to_decoder, attention
-        
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters())
+
     def forward(self, inputs):
+        self.forward_with_context(inputs)['audio_decoded']
+
+    def forward_with_context(self, inputs):
         audio_input, text_input = inputs
         audio_encoded = self.audio_encoder(audio_input)
         text_encoded_att, text_encoded_chr = self.text_encoder(text_input)
-        input_to_decoder, attention = self.mix_input(text_encoded_att, text_encoded_chr, audio_encoded)
+        input_to_decoder, attention = mix_input(text_encoded_att, text_encoded_chr, audio_encoded)
         audio_decoded = self.audio_decoder(input_to_decoder)
-        return audio_decoded
+        return {
+            'audio_encoded': audio_encoded,
+            'text_encoded_att': text_encoded_att,
+            'text_encoded_chr': text_encoded_chr,
+            'input_to_decoder': input_to_decoder,
+            'attention': attention,
+            'audio_decoded': audio_decoded
+        }
     
     def __calc_losses(self, batch):
         (audio_input, text_input), audio_target = batch
-        audio_encoded = self.audio_encoder(audio_input)
-        text_encoded_att, text_encoded_chr = self.text_encoder(text_input)
-        input_to_decoder, attention = self.mix_input(text_encoded_att, text_encoded_chr, audio_encoded)
-        audio_decoded = self.audio_decoder(input_to_decoder)
+        context = self.forward_with_context([audio_input, text_input])
+        attention = context['attention']
+        audio_decoded = context['audio_decoded']
         N = attention.size(1)
         T = attention.size(2)
         ts = torch.arange(T, dtype=torch.double).repeat(N).view(N, T)
@@ -57,33 +75,23 @@ class TTSModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         att_loss, bce_loss, l1_loss = self.__calc_losses(batch)
         loss = att_loss + bce_loss + l1_loss
-        return {'val_loss': loss}
+        return {'val_loss': loss, 'batch': batch}
 
     def training_epoch_end(self, outputs):
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
         avg_att = torch.stack([x['att'] for x in outputs]).mean()
         avg_bce = torch.stack([x['bce'] for x in outputs]).mean()
         avg_l1 = torch.stack([x['l1'] for x in outputs]).mean()
-        
-        logs = {'loss': avg_loss, 'att': avg_att, 'bce': avg_bce, 'l1': avg_l1}
-        results = {'log': logs}
-        return results
+        return {
+            'log': {
+                'Loss/total': avg_loss, 'Loss/att': avg_att,
+                'Loss/BCE': avg_bce, 'Loss/L1': avg_l1
+            }
+        }
     
     def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        logs = {'val_loss': avg_loss}
-        results = {'log': logs}
-        return results
-        
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters())
-    
-    def prepare_data(self):
-        self.train_set = KSSDataset(train=True)
-        self.val_set = KSSDataset(train=False)
-    
-    def train_dataloader(self):
-        return TTSDataLoader(self.train_set, batch_size=32)
-    
-    def val_dataloader(self):
-        return TTSDataLoader(self.val_set, batch_size=32)
+        return {
+            'to_callback': {
+                'batch': outputs[-1]['batch']
+            }
+        }
