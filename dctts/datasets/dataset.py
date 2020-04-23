@@ -1,14 +1,15 @@
 import os
+import json
 import numpy as np
 from collections import defaultdict
 from util.preprocess import calc_spectrograms
 from util.g2p import grapheme_to_phoneme, convert_to_indices
 from sklearn.model_selection import train_test_split
+import pathlib
 import librosa
 import torch
 
 class TTSData:
-    __cache = defaultdict(dict)
     def __init__(self, path_to_wav, sentence):
         self.path_to_wav = path_to_wav
         self.sentence = sentence
@@ -19,17 +20,26 @@ class TTSData:
     def __repr__(self):
         return f'TTSData(sentence={self.sentence})'
 
+    def calc_melspectrogram(self):
+        waveform, sampling_rate = librosa.load(self.path_to_wav)
+        return calc_spectrograms(waveform, sampling_rate)['mel_norm']
+
     @property
     def melspectrogram(self):
         # returns transformed melspectrogram for convenience
-        if self._melspectrogram is None:
-            cache = TTSData.__cache[self.path_to_wav]
-            if 'mel' not in cache:
-                waveform, sampling_rate = librosa.load(self.path_to_wav)
-                cache['mel'] = \
-                    calc_spectrograms(waveform, sampling_rate)['mel_norm'].T
-            self._melspectrogram = cache['mel']
-        return self._melspectrogram
+        cache_path = pathlib.Path(os.path.join(
+            os.path.dirname(__file__), 'data/cache/',
+            self.path_to_wav.replace('/', '-').replace('.', '')
+        ))
+        if cache_path.exists():
+            with open(cache_path) as f:
+                return np.array(json.loads(f.read()), dtype=np.float32)
+        else:
+            mel = self.calc_melspectrogram()
+            cache_path.parent.mkdir(exist_ok=True, parents=True)
+            with open(cache_path, 'w') as f:
+                f.write(json.dumps(mel.tolist()))
+            return mel
 
     @property
     def char_sequence(self):
@@ -104,14 +114,14 @@ class TTSDataLoader:
             for data in batch
         ])
 
-        max_t = np.max([data.melspectrogram.shape[0] for data in batch])
+        max_t = np.max([data.melspectrogram.shape[1] for data in batch])
         padded_melspectrograms = np.array([
             np.pad(data.melspectrogram,
-                   ((1, max_t - data.melspectrogram.shape[0]), (0, 0)))
+                   ((0, 0), (1, max_t - data.melspectrogram.shape[1])))
             for data in batch
         ])
-        mel_left = padded_melspectrograms[:,:max_t,:]
-        mel_right = padded_melspectrograms[:,1:,:]
+        mel_left = padded_melspectrograms[:,:,:max_t]
+        mel_right = padded_melspectrograms[:,:,1:]
         return [torch.tensor(mel_left), torch.tensor(padded_sentences)], torch.tensor(mel_right)
 
 
