@@ -18,12 +18,9 @@ class TTSModel(pl.LightningModule):
         self.text_encoder = TextEncoder()
         self.audio_decoder = AudioDecoder()
 
-    def summary(self, mode):
-        pass
-    
     def prepare_data(self):
-        self.train_set = KSSDataset(train=True)
-        self.val_set = KSSDataset(train=False)
+        self.train_set = KSSDataset(train=True, section='all')
+        self.val_set = KSSDataset(train=False, section='all')
 
     def train_dataloader(self):
         return TTSDataLoader(self.train_set, batch_size=32)
@@ -35,7 +32,7 @@ class TTSModel(pl.LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def forward(self, inputs):
-        self.forward_with_context(inputs)['audio_decoded']
+        return self.forward_with_context(inputs)['audio_decoded']
 
     def forward_with_context(self, inputs):
         audio_input, text_input = inputs
