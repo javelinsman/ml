@@ -4,6 +4,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from pathlib import Path
 import xtts.models as md
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 
 def mkdir(path, is_file):
@@ -25,8 +27,11 @@ class Experiment:
         self.db_rel_path = os.path.join(self.log_dir, 'db.sqlite3')
         self.db = create_engine(f'sqlite:///{self.db_rel_path}')
         md.Base.metadata.create_all(self.db)
-        Session = sessionmaker(bind=self.db)
-        self.session = Session()
+
+    @property
+    def session(self):
+        self.Session = sessionmaker(bind=self.db)
+        return self.Session()
         
     def add_tensor(self, tag, step, tensor, detail_dict={}, timestamp=None):
         tensor = md.Tensor(tag=tag, step=step,
@@ -39,3 +44,12 @@ class Experiment:
         return self.session.query(md.Tensor) \
             .filter(md.Tensor.tag.like(tag)) \
             .filter(md.Tensor.step.like(step)).all()
+
+    def serve(self, host='0.0.0.0', port=6007):
+        app = Flask(__name__)
+        @app.route('/fetch_tensors', methods=['GET'])
+        def fetch_tensors():
+            return jsonify([
+                tensor.to_dict() for tensor in self.fetch_tensors()
+            ])
+        app.run(host=host, port=port)
