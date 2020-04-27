@@ -16,3 +16,13 @@ class Tensor(Base):
     def __repr__(self):
         return f'Tensor(tag={self.tag}, step={self.step},' \
             f' {torch.tensor(self.tensor)}, {self.detail_dict})'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'step': self.step,
+            'tag': self.tag,
+            'tensor': self.tensor,
+            'detail_dict': self.detail_dict,
+            'timestamp': self.timestamp.timestamp()
+        }
