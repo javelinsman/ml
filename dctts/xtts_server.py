@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_compress import Compress
 from xtts.experiment import Experiment
 import argparse
 import os
@@ -8,6 +9,7 @@ log_dir = None
 
 app = Flask(__name__)
 CORS(app)
+Compress(app)
 
 def get_experiment_names():
     return [i for i in os.listdir(log_dir)
