@@ -1,26 +1,11 @@
 import React from 'react';
-import logo from './logo.svg';
 import './App.css';
-import fetch from 'cross-fetch';
+import Validation from './components/Validation'
 
 function App() {
-  console.log(fetch('http://147.46.215.181:6007/fetch_tensors?experiment_name=-tb_logs-20200427-logging_test-version_9'))
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      <Validation></Validation>
     </div>
   );
 }
