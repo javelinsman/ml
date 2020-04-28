@@ -4,6 +4,7 @@ import torchvision
 import torch
 from PIL import Image
 import numpy as np
+from xtts.experiment import Experiment
 
 def fit_to_width(image_matrix, width):
     scale = width / image_matrix.shape[1]
@@ -32,47 +33,28 @@ def rgba2rgb(rgba):
 
 class LoggingCallback(pl.Callback):
     def on_validation_end(self, trainer, model):
-        experiment = model.logger.experiment
+        experiment_id = model.logger.log_dir.replace('.', '').replace('/', '-')
+        experiment = Experiment(experiment_id)
+
         data_passed = trainer.callback_metrics['to_callback']
-
-        experiment.add_image(
-            'Relative Colormap',
-            self.image_eval_batch(model, data_passed['batch'], True),
-            model.current_epoch
-        )
-
-        experiment.add_image(
-            'Absolute Colormap',
-            self.image_eval_batch(model, data_passed['batch'], False),
-            model.current_epoch
-        )
-
-
-    def image_eval_batch(self, model, batch, relative):
-        width = 1080
+        batch = data_passed['batch']
         (audio_input, text_input), audio_target = batch
         context = model.forward_with_context([audio_input, text_input])
         def ref(key):
             return context[key].cpu().detach().numpy()
-        
-        
         audio_encoded = ref('audio_encoded')
         text_encoded_att = ref('text_encoded_att')
         text_encoded_chr = ref('text_encoded_chr')
         attention = ref('attention')
         input_to_decoder = ref('input_to_decoder')
         audio_decoded = ref('audio_decoded')
+        audio_target = audio_target.cpu().detach().numpy()
 
-        splitter = np.zeros((15, width, 4))    
-        rgba = np.vstack((
-            normalize(fit_to_width(audio_target[0].cpu().detach().numpy(), width), relative),
-            splitter,
-            normalize(fit_to_width(audio_decoded[0], width), relative), splitter,
-            normalize(fit_to_width(attention[0], width), relative), splitter,
-            normalize(fit_to_width(audio_encoded[0], width), relative), splitter,
-            normalize(fit_to_width(text_encoded_att[0].T, width), relative), splitter,
-            normalize(fit_to_width(text_encoded_chr[0].T, width), relative), splitter,
-            normalize(fit_to_width(input_to_decoder[0], width), relative), splitter,        
-        ))
-        rgb = rgba2rgb(rgba)
-        return torch.tensor(rgb).permute(2, 0, 1)
+        step = trainer.global_step
+        experiment.add_tensor('audio_target', step, audio_target[0])
+        experiment.add_tensor('audio_encoded', step, audio_encoded[0])
+        experiment.add_tensor('text_encoded_att', step, text_encoded_att[0])
+        experiment.add_tensor('text_encoded_chr', step, text_encoded_chr[0])
+        experiment.add_tensor('attention', step, attention[0])
+        experiment.add_tensor('input_to_decoder', step, input_to_decoder[0])
+        experiment.add_tensor('audio_decoded', step, audio_decoded[0])

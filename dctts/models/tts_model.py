@@ -6,21 +6,35 @@ from util.layers import CustomConv1d, HighwayConv1d
 from datasets.dataset import KSSDataset, TTSDataLoader
 from .config import DIMENSIONS as D
 
-from .audio_decoder import AudioDecoder
-from .text_encoder import TextEncoder
-from .audio_encoder import AudioEncoder
+from .audio_decoder import AudioDecoder, SimpleAudioDecoder, YYAudioDecoder
+from .text_encoder import TextEncoder, SimpleTextEncoder, YYTextEncoder
+from .audio_encoder import AudioEncoder, SimpleAudioEncoder, YYAudioEncoder
 from .attention import mix_input
+
+import util.yangnet as yn
 
 class TTSModel(pl.LightningModule):
     def __init__(self):
         super().__init__()
-        self.audio_encoder = AudioEncoder()
-        self.text_encoder = TextEncoder()
-        self.audio_decoder = AudioDecoder()
+        # self.audio_encoder = AudioEncoder()
+        # self.text_encoder = TextEncoder()
+        # self.audio_decoder = AudioDecoder()
+        # self.audio_encoder = YYAudioEncoder()
+        # self.text_encoder = YYTextEncoder()
+        # self.audio_decoder = YYAudioDecoder()
+        # self.audio_encoder = SimpleAudioEncoder()
+        # self.text_encoder = SimpleTextEncoder()
+        # self.audio_decoder = SimpleAudioDecoder()
+        self.audio_encoder = yn.AudioEncoder()
+        self.text_encoder = yn.TextEncoder()
+        self.audio_decoder = yn.AudioDecoder()
+        # self.attention_make = yn.DotProductAttention()
 
     def prepare_data(self):
-        self.train_set = KSSDataset(train=True, section='all')
-        self.val_set = KSSDataset(train=False, section='all')
+        # self.train_set = KSSDataset(train=True, section='all')
+        # self.val_set = KSSDataset(train=False, section='all')
+        self.train_set = KSSDataset(train=True)
+        self.val_set = KSSDataset(train=False)
 
     def train_dataloader(self):
         return TTSDataLoader(self.train_set, batch_size=32)
@@ -29,7 +43,7 @@ class TTSModel(pl.LightningModule):
         return TTSDataLoader(self.val_set, batch_size=32)
         
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters())
+        return torch.optim.Adam(self.parameters(), lr=2e-4, betas=(0.5, 0.9), eps=1e-6)
 
     def forward(self, inputs):
         return self.forward_with_context(inputs)['audio_decoded']
@@ -39,7 +53,9 @@ class TTSModel(pl.LightningModule):
         audio_encoded = self.audio_encoder(audio_input)
         text_encoded_att, text_encoded_chr = self.text_encoder(text_input)
         input_to_decoder, attention = mix_input(text_encoded_att, text_encoded_chr, audio_encoded)
+        # input_to_decoder, attention = self.attention_make(text_encoded_att, text_encoded_chr, audio_encoded)
         audio_decoded = self.audio_decoder(input_to_decoder)
+
         return {
             'audio_encoded': audio_encoded,
             'text_encoded_att': text_encoded_att,
@@ -54,12 +70,14 @@ class TTSModel(pl.LightningModule):
         context = self.forward_with_context([audio_input, text_input])
         attention = context['attention']
         audio_decoded = context['audio_decoded']
-        N = attention.size(1)
-        T = attention.size(2)
-        ts = torch.arange(T, dtype=torch.double).repeat(N).view(N, T)
-        ns = torch.arange(N, dtype=torch.double).repeat(T).view(T, N).T
-        attention_guide = 1 - torch.exp(-(ns / N - ts / T) ** 2 / (2 * 0.2 ** 2))
-        att_loss = torch.mean(attention * attention_guide.to(attention.device))
+        with torch.no_grad():
+            N = attention.size(1)
+            T = attention.size(2)
+            ts = torch.arange(T, dtype=torch.double).repeat(N).view(N, T)
+            ns = torch.arange(N, dtype=torch.double).repeat(T).view(T, N).T
+            attention_guide = 1 - torch.exp(-(ns / N - ts / T) ** 2 / (2 * 0.2 ** 2))
+            attention_guide = attention_guide.to(attention.device)
+        att_loss = torch.mean(attention * attention_guide)
         bce_loss = nn.BCELoss()(audio_decoded, audio_target)
         l1_loss = nn.L1Loss()(audio_decoded, audio_target)
         return att_loss, bce_loss, l1_loss
