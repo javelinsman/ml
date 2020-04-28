@@ -43,13 +43,25 @@ class Experiment:
         
     def add_tensor(self, tag, step, tensor, detail_dict={}, timestamp=None):
         with self.session_scope() as session:
-            tensor = md.Tensor(tag=tag, step=step,
-                            tensor=tensor, detail_dict=detail_dict,
-                            timestamp=timestamp)
+            tensor = md.Tensor(tag=tag, step=step, tensor=tensor.tolist(),
+                               detail_dict=detail_dict, timestamp=timestamp)
             session.add(tensor)
+
+    def fetch_tags(self):
+        with self.session_scope() as session:
+            result = session.query(md.Tensor.tag).distinct().all()
+            return [x.tag for x in result]
+
+    def fetch_steps(self, tag='%'):
+        with self.session_scope() as session:
+            result = session.query(md.Tensor.step) \
+                .filter(md.Tensor.tag.like(tag)) \
+                .distinct().order_by(md.Tensor.step.asc()).all()
+            return [x.step for x in result]
 
     def fetch_tensors(self, tag='%', step='%'):
         with self.session_scope() as session:
-            return session.query(md.Tensor) \
+            tensors = session.query(md.Tensor) \
                 .filter(md.Tensor.tag.like(tag)) \
                 .filter(md.Tensor.step.like(step)).all()
+            return [tensor.to_dict() for tensor in tensors]
