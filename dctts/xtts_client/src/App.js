@@ -1,11 +1,11 @@
 import React from 'react';
 import './App.css';
-import Validation from './components/Validation'
+import Dashboard from './components/Dashboard'
 
 function App() {
   return (
     <div className="App">
-      <Validation></Validation>
+      <Dashboard></Dashboard>
     </div>
   );
 }
